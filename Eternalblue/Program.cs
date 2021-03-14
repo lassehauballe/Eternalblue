@@ -17,6 +17,8 @@ namespace Eternalblue
             byte[] pkt = {0x00};             // Message_Type
             pkt += 0x00,0x00,0x54;       // Length
             kh
+                asdasd;
+
 
             $pkt += 0xFF,0x53,0x4D,0x42 // server_component: .SMB
             $pkt += 0x72             // smb_command: Negotiate Protocol
