@@ -2,7 +2,8 @@
 
 This project is an almost direct translation of https://github.com/EmpireProject/Empire/blob/master/data/module_source/exploitation/Exploit-EternalBlue.ps1. 
 
-It was created to help myself gain an understanding of how Eternalblue actually works. Please do use on your own risk, since I have also seen a couple of BSOD during development.
+It was created as an educational project to help myself gain an understanding of how Eternalblue actually works.  
+Please do use on your own risk, since I have also seen a couple of BSOD during development.  
 The code has only been tested using msfvenom x64 exec and meterpreter reverse shell shellcode. Remember this is the old eternalblue exploit, so should not work on windows 8 and newer. 
 
 ![alt text](https://raw.githubusercontent.com/povlteksttv/Eternalblue/master/img/eternalblue.PNG?raw=true)
