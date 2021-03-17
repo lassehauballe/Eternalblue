@@ -1,6 +1,6 @@
 # Eternalblue in C#
 
-This project is an almost direct translation of https://github.com/EmpireProject/Empire/blob/master/data/module_source/exploitation/Exploit-EternalBlue.ps1. However, the Empire-script did not test if the target is vulnerable. In order to test for this, I translated a piece of Metasploits auxiliary/scanner/smb/smb_ms17_010
+This project is an almost direct translation of https://github.com/EmpireProject/Empire/blob/master/data/module_source/exploitation/Exploit-EternalBlue.ps1. However, the Empire-script did not test if the target is vulnerable. To test for this, I also translated a bit of Metasploits auxiliary/scanner/smb/smb_ms17_010
 
 It was created as an educational project to help myself gain an understanding of how Eternalblue actually works.  
 Please do use on your own risk, since I have also seen a couple of BSOD during development.  
