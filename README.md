@@ -8,7 +8,7 @@ The code has only been tested using msfvenom x64 exec and meterpreter reverse sh
 
 ![alt text](https://github.com/povlteksttv/Eternalblue/blob/master/img/Eternalblue.PNG?raw=true)
 
-## To use: 
+## How to use: 
 1) Replace the shellcode called buf in main (not in make_kernel_shellcode!)
 2) Compile as 64-bit
 3) Eternalblue.exe [ip] [number of grooms]
