@@ -6,7 +6,7 @@ It was created as an educational project to help myself gain an understanding of
 Please do use on your own risk, since I have also seen a couple of BSOD during development.  
 The code has only been tested using msfvenom x64 exec and meterpreter reverse shell shellcode. Remember this is the old eternalblue exploit, so should not work on windows 8 and newer. 
 
-![alt text](https://raw.githubusercontent.com/povlteksttv/Eternalblue/master/img/eternalblue.PNG?raw=true)
+![alt text](https://github.com/povlteksttv/Eternalblue/blob/master/img/Eternalblue.PNG?raw=true)
 
 ## To use: 
 1) Replace the shellcode called buf in main (not in make_kernel_shellcode!)
