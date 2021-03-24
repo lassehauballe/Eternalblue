@@ -11,9 +11,12 @@ Remember this is the old eternalblue exploit, so should not work on windows 8 an
 * It is now hardcoded with 'Grooms' set to 12
 * It can now be run using either "detect or exploit". The first will only detect if its vulnerable or not. 
 
-![alt text](https://github.com/povlteksttv/Eternalblue/blob/master/img/Eternalblue.PNG?raw=true)
-
 ## How to use: 
 1) Replace the shellcode byte[] called 'buf' in Exploit (line 623) (The current shellcode just starts notepad.exe (as system))
 2) Compile
 3) Eternalblue.exe [detect/exploit] [ip]
+
+
+![alt text](https://github.com/povlteksttv/Eternalblue/blob/master/img/Detect.PNG?raw=true)
+
+![alt text](https://github.com/povlteksttv/Eternalblue/blob/master/img/Exploit.PNG?raw=true)
