@@ -17,7 +17,8 @@ Remember this is the old eternalblue exploit, so should not work on windows 8 an
 2) Compile
 3) Eternalblue.exe [detect/exploit] [ip/all]
 
-
+## Eternalblue.exe running in detect-mode on the entire network
 ![alt text](https://github.com/povlteksttv/Eternalblue/blob/master/img/detect1.png?raw=true)
 
+## Eternalblue.exe running in exploit-mode on the entire network
 ![alt text](https://github.com/povlteksttv/Eternalblue/blob/master/img/exploit1.png?raw=true)
