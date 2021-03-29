@@ -1143,8 +1143,7 @@ namespace Eternalblue
                 if (IsValidIP(args[1]))
                 {
                     string target = args[1];
-                    Console.WriteLine("Lol");
-
+                    
                     bool isVulnerable = Detect(target);
                     if (isVulnerable && shouldExploit)
                     {
