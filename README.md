@@ -1,5 +1,7 @@
 # Eternalblue in C# (aka. Povlsomworm)
 
+[![Eternalblue in C# with Cobalt-Strike payload](https://img.youtube.com/vi/xHt2rgiU4e4/0.jpg)](https://youtu.be/xHt2rgiU4e4)
+
 This project is an almost direct translation of https://github.com/EmpireProject/Empire/blob/master/data/module_source/exploitation/Exploit-EternalBlue.ps1. However, the Empire-script did not test if the target is vulnerable. To test for this, I also translated a bit of Metasploits auxiliary/scanner/smb/smb_ms17_010
 
 This was created as an educational project to help myself gain an understanding of how Eternalblue actually works.  
@@ -16,8 +18,6 @@ Remember this is the old eternalblue exploit, so should not work on windows 8 an
 1) Replace the shellcode byte[] called 'buf' in Exploit (line 1028) (The current shellcode just starts notepad.exe (as system))
 2) Compile
 3) Eternalblue.exe [detect/exploit] [ip/all]
-
-
 
 ## Eternalblue.exe running in detect-mode on the entire network
 ![alt text](https://github.com/povlteksttv/Eternalblue/blob/master/img/detect1.png?raw=true)
