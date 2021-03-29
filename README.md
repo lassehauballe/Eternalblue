@@ -17,7 +17,7 @@ Remember this is the old eternalblue exploit, so should not work on windows 8 an
 2) Compile
 3) Eternalblue.exe [detect/exploit] [ip/all]
 
-## Video of project in use (Cobalt-Strike payload)
+## Video: With Cobalt-Strike payload
 [![Eternalblue in C# with Cobalt-Strike payload](https://img.youtube.com/vi/xHt2rgiU4e4/0.jpg)](https://youtu.be/xHt2rgiU4e4)
 
 ## Eternalblue.exe running in detect-mode on the entire network
