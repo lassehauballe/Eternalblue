@@ -18,10 +18,6 @@ Remember this is the old eternalblue exploit, so should not work on windows 8 an
 3) Eternalblue.exe [detect/exploit] [ip/all]
 
 
-https://user-images.githubusercontent.com/35890107/112828683-5626b600-9090-11eb-8719-d01dc0fe9827.mp4
-
-
-
 
 ## Eternalblue.exe running in detect-mode on the entire network
 ![alt text](https://github.com/povlteksttv/Eternalblue/blob/master/img/detect1.png?raw=true)
