@@ -1,4 +1,4 @@
-# Eternalblue in C# (aka. Povlsomworm)
+# Eternalblue in C# 
 
 This project is an almost direct translation of https://github.com/EmpireProject/Empire/blob/master/data/module_source/exploitation/Exploit-EternalBlue.ps1. However, the Empire-script did not test if the target is vulnerable. To test for this, I also translated a bit of Metasploits auxiliary/scanner/smb/smb_ms17_010
 
