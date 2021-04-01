@@ -8,9 +8,9 @@ The code has only been tested using msfvenom x64 exec and meterpreter reverse sh
 Remember this is the old eternalblue exploit, so should not work on windows 8 and newer. 
 
 ## Updates: 
-* It is now hardcoded with 'Grooms' set to 12
+* It is hardcoded with 'Grooms' set to 12
 * It can now be run using either "detect or exploit". The first will only detect if its vulnerable or not. 
-* It can now be run with either an IP or the word 'all'. In the latter, it will go through every host on the subnet. At this time, it only spreads on 192.168.XXX.XXX/24 networks. 
+* It can be run with either an IP or the word 'all'. In the latter, it will go through every host on the subnet. At this time, it only spreads on 192.168.XXX.XXX/24 networks. 
 
 ## How to use: 
 1) Replace the shellcode byte[] called 'buf' in Exploit (line 1028) (The current shellcode just starts notepad.exe (as system))
